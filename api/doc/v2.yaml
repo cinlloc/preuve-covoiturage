@@ -1,7 +1,7 @@
 openapi: '3.0.2'
 info:
   title: API
-  version: '2.0'
+  version: '3.0'
   termsOfService: https://doc.covoiturage.beta.gouv.fr/le-registre-de-preuve-de-covoiturage/kit-de-communication/cgu-conditions-generales-dutilisation
   contact:
     name: Équipe technique
@@ -15,8 +15,8 @@ externalDocs:
   description: Documentation générale 
 
 servers:
-  - url: https://api.covoiturage.beta.gouv.fr/v2
-  - url: https://api.demo.covoiturage.beta.gouv.fr/v2
+  - url: https://api.covoiturage.beta.gouv.fr/v3
+  - url: https://api.demo.covoiturage.beta.gouv.fr/v3
 
 components:
   securitySchemes:
@@ -25,14 +25,157 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    offset:
+      type: number
+      multipleOf: 1
+      minimum: 0
+      description: Offset
+    total:
+      type: number
+      multipleOf: 1
+      minimum: 0
+      description: Limite
+    limit:
+      type: number
+      multipleOf: 1
+      minimum: 0
+      description: Limite
+    pagination:
+      type: object
+      required:
+        - offset
+        - limit
+      additionalProperties: false
+      properties:
+        offset:
+          '$ref': '#/components/schemas/offset'
+        limit:
+          '$ref': '#/components/schemas/limit'
+        total:
+          '$ref': '#/components/schemas/total'
+    operator_trip_id:
+      type: string
+      description: Identifiant généré par l'opérateur pour regrouper des trajets (plusieurs passagers avec un même conducteur)
+    operator_class:
+      enum:
+        - A
+        - B
+        - C
+      description: classe de preuve correspondant aux spécifications définies dans [Classes de preuve de covoiturage](https://doc.covoiturage.beta.gouv.fr/le-registre-de-preuve-de-covoiturage/classes-de-preuve-and-identite/classes-a-b-c).
+    licence_plate:
+      type: string
+      description: Plaque d'immatriculation du véhicule
+    driver:
+      type: object
+      additionalProperties: false
+      required:
+        - identity
+        - revenue
+      properties:
+        identity:
+          '$ref': '#/components/schemas/identity'
+        revenue:
+          type: number
+          minimum: 0
+          multipleOf: 1
+          description: |
+            La somme réellement perçue par le conducteur **APRÈS** que toutes les incitations (subventions employeurs, promotions opérateurs, incitations AOM, etc.), contributions des passagers aient été versées et que la commission de l’opérateur soit prise.
+            Somme exprimée en centimes.
+    passenger:
+      type: object
+      additionalProperties: false
+      required:
+        - identity
+        - contribution
+      properties:
+        identity:
+          '$ref': '#/components/schemas/identity'
+        payments:
+          '$ref': '#/components/schemas/payments'
+        contribution:
+          type: number
+          minimum: 0
+          multipleOf: 1
+          description: |
+            Coût réel total du service pour l’occupant passager en fonction du nombre de sièges réservés **APRÈS** que toutes les possibles incitations aient été versées (subventions employeurs, promotions opérateurs, incitations AOM, etc).|
+            Somme exprimée en centimes.
+        seats:
+          type: number
+          minimum: 1
+          maximum: 8
+          multipleOf: 1
+          default: 1
+          description: Nombre de sièges réservés par l'occupant passager.
+    operator_journey_id:
+      type: string
+      description: Identifiant généré par l'opérateur. Doit être unique par couple conducteur/passager
+    status:
+      type: string
+      enum:
+        - acquisition_error
+        - normalization_error
+        - fraud_error
+        - ok
+        - expired
+        - canceled
+        - pending
+      description: | 
+        Statut du trajet tel que :
+          - acquisition_error : le trajet n'a pas du tout été enregistré
+          - normalization_error : le trajet a été enregistré mais les données envoyées n'ont pas pu être standardisée.
+          - fraud_error : le trajet a été enregistré et standardisé mais il a été considéré comme anormal
+          - ok : le trajet a correctement été traité
+          - pending : le trajet a été enregistré mais n'a pas encore été traité
+          - canceled : le trajet a été annulé par l'opérateur
+          - expired : le trajet a été envoyé trop tard. [Cf: engagement de délais d'envoi par les opérateurs](https://doc.covoiturage.beta.gouv.fr/bienvenue/faq-foire-aux-questions#quel-est-le-delai-denvoi-des-preuves-de-covoiturage)
+    duration:
+      type: number
+      minimum: 0
+      multipleOf: 1
+      maximum: 36000
+      description: Durée exprimée en seconde
+    distance:
+      type: number
+      minimum: 0
+      multipleOf: 1
+      maximum: 1000000
+      description: Distance exprimée en mètre
+    incentive_counterparts:
+      type: array
+      description: |
+        Tableau reprenant la liste complète des contreparties à l'incitation ayant eu un impact sur le coût du trajet (cible, montant, identifiant de l'incitateur).
+        Par exemple, un trajet pris en charge dans le cadre d'un engagement des opérateurs à rendre gratuit le trajet passager pour les porteurs d'une carte de transport
+        donnerait lieu à une inscription de cette prise en charge dans ce tableau.
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - target
+          - amount
+          - siret
+        properties:
+          target:
+            type: string
+            enum:
+              - driver
+              - passenger
+          amount:
+            type: number
+            minimum: 0
+            multipleOf: 1
+            description: Montant de l'incitation en centimes d'euros
+            example: 100
+          siret:
+            type: string
+            description: | 
+              Numéro de SIRET de l'incitateur
+              Le SIRET est un identifiant unique par structure juridique. Toutes les entités incitatrices en possèdent un.
+            example: "11000101300017"
     incentives:
       type: array
       description: |
         Tableau reprenant la liste complète des incitations appliquées (ordre d'application, montant, identifiant de l'incitateur). Si aucune incitation, envoyer un tableau vide
-        
-        ## Dépréciation 
-        Les propriétés `passenger.incentives` et `driver.incentives` sont en cours de dépréciation au profit d'une propriété commune au couple.
-        Ainsi, par convention en attendant la V3 de l'API, il faut mettre l'ensemble des incitations du couple sur la propriété `driver.incentives`.
+        Attention, il s'agit ici des incitations générées par le trajet mais pas forcément "consommé" par celui-ci (objet à remplir dans le tableau "incentive_counterparts").
 
         ## Ordre par défaut
         Par défaut, l'ordre d'application des politiques incitatives est le suivant :
@@ -51,7 +194,7 @@ components:
             type: number
             minimum: 0
             multipleOf: 1
-            description: Ordre d'application
+            description: Ordre d'application de l'incitation
             example: 0
           amount:
             type: number
@@ -111,55 +254,34 @@ components:
       type: object
       additionalProperties: false
       description: |
-        L'ordre de priorité des propriétés de position est le suivant :
-          1. lon/lat
-          2. insee
-          3. literal/country
-        Attention, **lon** dépend de **lat** et **literal** dépend de **country**.
+        Position lat/lon
       required:
-        - datetime
+        - lat
+        - lon
       properties:
-        datetime:
-          type: string
-          format: date-time 
-          description: |
-            Date et heure du départ/arrivée au format ISO 8601. L'heure est exprimée en UTC (YYYY-MM-DDThh:mm:ssZ)
-            L'heure est exprimée en UTC \(Coordinated Universal Time\). UTC n'est pas ajusté sur l'heure d'été et hiver !
-          example: '2021-01-01T11:00:00Z'
         lat:
           '$ref': "#/components/schemas/lat"
         lon:
           '$ref': "#/components/schemas/lon"
-        insee:
-          type: string
-          description: |
-            Code INSEE commune ou arrondissement de la position
-            Pour le métropoles qui comportent un code INSEE global et des codes par arrondissement, utiliser le code arrondissement.
-        literal:
-          type: string
-          description: Adresse littérale
-          example: 5 rue du Paradis, 75010 Paris
-        country:
-          type: string
-          description: Nom complet du pays
-    geopointcoord:
+    datetime:
+      type: string
+      format: date-time 
+      description: |
+        Date et heure du départ/arrivée au format ISO 8601. L'heure est exprimée en UTC (YYYY-MM-DDThh:mm:ssZ)
+        L'heure est exprimée en UTC \(Coordinated Universal Time\). UTC n'est pas ajusté sur l'heure d'été et hiver !
+      example: '2021-01-01T11:00:00Z'
+    time_geopoint:
       type: object
       additionalProperties: false
       description: |
         Position lat/lon + date 
-        Attention, contrairement à la requête pour envoyer des preuves, la simulation ne supporte que les données géographiques sous forme lat/lon.
       required:
         - datetime
         - lat
         - lon
       properties:
         datetime:
-          type: string
-          format: date-time 
-          description: |
-            Date et heure du départ/arrivée au format ISO 8601. L'heure est exprimée en UTC (YYYY-MM-DDThh:mm:ssZ)
-            L'heure est exprimée en UTC \(Coordinated Universal Time\). UTC n'est pas ajusté sur l'heure d'été et hiver !
-          example: '2021-01-01T11:00:00Z'
+          '$ref': "#/components/schemas/datetime"
         lat:
           '$ref': "#/components/schemas/lat"
         lon:
@@ -172,20 +294,18 @@ components:
         - Numéro complet à 10 chiffres (phone)
         - Numéro tronqué à 8 chiffres (phone_trunc) + identifiant unique de l'opérateur (operator_user_id)
       additionalProperties: false
+      required:
+        - operator_user_id
+        - identity_key
       properties:
-        firstname:
+        identity_key:
           type: string
-          description: Prénom de l'occupant
-        lastname:
-          type: string
-          description: Nom de l'occupant
-        email:
-          type: string
-          description: Email de l'occupant
-          format: email
-        company:
-          type: string
-          description: Nom de l'employeur de l'occupant
+          minLength: 64
+          maxLength: 64
+          description: |
+            Correspond au sha d'une chaîne concaténée tel que : sha256(*phone_number*-*last_name*) ou
+            - `phone_number` correspond au numéro de téléphone complet au format international sans espace ni tiret. Exemple : +33601020304
+            - `last_name` correspond au nom de famille complet en majuscule sans accent 
         travel_pass:
           type: object
           description: |
@@ -214,6 +334,29 @@ components:
           type: string
           description: Numéro de téléphone à 8 chiffres. Obligatoire si le numéro de téléphone complet n'est pas fournit.
           example: '+336123456'
+        driving_license:
+            description: |
+              Numéro de permis de conduire (également appelé code driving_license)
+              cf https://permisdeconduire.ants.gouv.fr/tout-savoir-sur-le-permis/le-numero-de-dossier-sur-un-permis-au-format-carte-bancaire 
+            oneOf:
+              - type: string
+                description: Numéro de permis de conduire composé de 12 chiffres après 1975.
+                example: '051227308989'
+                pattern: /^[0-9]{12}$/
+                minLength: 12
+                maxLength: 12
+              - type: string
+                description: Numéro de permis de conduire composé de 1 à 15 caractères suivis de 4 chiffres avant 1975.
+                example: '822146819'
+                pattern: /^[A-Z0-9]{1,15}[0-9]{4}$/
+                minLength: 5
+                maxLength: 19
+              - type: string
+                description: Numéro de permis étranger préfixé de l'indicatif '99-'.
+                example: '99-X23836'
+                pattern: /^99-.*$/
+                minLength: 4
+                maxLength: 64
         operator_user_id:
           type: string
           description: Identifiant de l'utilisateur chez l'opérateur. Obligatoire si le numéro de téléphone complet n'est pas fournit.
@@ -237,7 +380,6 @@ components:
         1. `phone` : le numéro de téléphone complet au format ISO
         2. `phone_trunc` + `operator_user_id` : le numéro de téléphone tronqué plus votre identifiant utilisateur
         3. `operator_user_id` : votre identifiant utilisateur uniquement (valable uniquement si vous avez transmis des trajets avec le couple `phone_trunc` + `operator_user_id`)
-
       additionalProperties: false
       properties:
         phone:
@@ -265,10 +407,11 @@ components:
               type: integer
             weekend_trips:
               type: integer
-            km:
-              type: integer
-            euros:
+            distance:
+              '$ref': '#/components/schemas/distance'
+            amount:
               type: number
+              description: montant en centimes d'euros
         trips:
           type: array
           items:
@@ -284,11 +427,97 @@ components:
                 format: date-time
               trips:
                 type: integer
-              km:
-                type: integer
-              euros:
+              distance:
+                '$ref': '#/components/schemas/distance'
+              amount:
                 type: number
+                description: montant en centimes d'euros
 paths:
+  /geo/route:
+    get:
+      tags:
+      - geo
+      security:
+        - token: []
+      summary: Calcul théorique de la distance et de la durée
+      parameters:
+        - name: start
+          in: query
+          required: true
+          schema:
+            '$ref': '#/components/schemas/geopoint'
+        - name: end
+          in: query
+          required: true
+          schema:
+            '$ref': '#/components/schemas/geopoint'
+      responses:
+        '200':
+          description: Ok
+          content:
+            'application/json':
+              schema:
+                type: object
+                required:
+                  - distance
+                  - duration
+                properties:
+                  distance:
+                    '$ref': '#/components/schemas/distance'
+                  duration:
+                    '$ref': '#/components/schemas/duration'
+  /geo/point/by_address:
+    get:
+      tags:
+      - geo
+      security:
+        - token: []
+      summary: Geocoding à partir d'une adresse litérale
+      parameters:
+        - name: literal
+          in: query
+          description: Adresse littérale
+          example: 5 rue du Paradis, 75010 Paris
+          required: true
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Nom complet du pays
+          example: France
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ok
+          content:
+            'application/json':
+              schema:
+                '$ref': '#/components/schemas/geopoint'
+  /geo/point/by_insee:
+    get:
+      tags:
+      - geo
+      security:
+        - token: []
+      summary: Geocoding à partir d'un code insee
+      parameters:
+        - name: code
+          in: query
+          description: |
+            Code INSEE commune ou arrondissement de la position
+            Pour le métropoles qui comportent un code INSEE global et des codes par arrondissement, utiliser le code arrondissement.
+          example: "91177"
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ok
+          content:
+            'application/json':
+              schema:
+                '$ref': '#/components/schemas/geopoint'
   /certificates:
     post:
       tags:
@@ -358,17 +587,7 @@ paths:
                     Pour sélectionner des trajets en fonction de leur point de départ et d'arrivée, il est possible de les préciser avec la clé `positions`.
                     Tous les trajets ayant un départ **et** une arrivée dans un rayon de `1km` autour des points donnés seront inclus à l'attestation.
                   items:
-                    type: object
-                    required:
-                      - lat
-                      - lon
-                    minItems: 2
-                    maxItems: 2
-                    properties:
-                      lat:
-                        '$ref': "#/components/schemas/lat"
-                      lon:
-                        '$ref': "#/components/schemas/lon"
+                    '$ref': "#/components/schemas/geopoint"
       responses:
         '201':
           description: OK
@@ -397,17 +616,7 @@ paths:
                       positions:
                         type: array
                         items:
-                          type: object
-                          required:
-                            - lat
-                            - lon
-                          minItems: 2
-                          maxItems: 2
-                          properties:
-                            lat:
-                              '$ref': "#/components/schemas/lat"
-                            lon:
-                              '$ref': "#/components/schemas/lon"
+                          '$ref': "#/components/schemas/geopoint"
                       driver:
                         '$ref': '#/components/schemas/certificate_data'
                       passenger:
@@ -436,7 +645,15 @@ paths:
               example:
                 code: 404
                 error: Not found
-  /certificates/pdf:
+  /certificates/{uuid}/attachment:
+    parameters:
+      - name: uuid
+        in: path
+        description: Identifiant du certificat précédemment créé.
+        required: true
+        schema:
+          type: string
+          format: uuid
     post:
       tags:
       - attestation
@@ -469,14 +686,8 @@ paths:
           'application/json':
             schema:
               type: object
-              required:
-                - uuid
               additionalProperties: false
               properties:
-                uuid:
-                  type: string
-                  format: uuid
-                  example: 8a9d2da9-39e3-4db7-be8e-12b4d2179fda
                 meta:
                   type: object
                   description: |
@@ -538,7 +749,7 @@ paths:
               example:
                 code: 404
                 error: Not found
-  /certificates/find/{uuid}:
+  /certificates/{uuid}:
     parameters:
       - name: uuid
         in: path
@@ -607,17 +818,7 @@ paths:
                   positions:
                     type: array
                     items:
-                      type: object
-                      required:
-                        - lat
-                        - lon
-                      minItems: 2
-                      maxItems: 2
-                      properties:
-                        lat:
-                          '$ref': "#/components/schemas/lat"
-                        lon:
-                          '$ref': "#/components/schemas/lon"
+                      '$ref': "#/components/schemas/geopoint"
                   driver:
                     '$ref': '#/components/schemas/certificate_data'
                   passenger:
@@ -660,7 +861,6 @@ paths:
         
         - montants financiers en **centimes d'Euros**
         - distances en **mètres**
-        - durées en **secondes**
 
         ### Données financières
 
@@ -681,107 +881,39 @@ paths:
             schema:
               type: object
               required:
-                - journey_id
+                - operator_journey_id
+                - incentives
+                - incentive_counterparts
                 - operator_class
+                - start
+                - end
+                - distance
                 - driver
                 - passenger
               additionalProperties: false
               properties:
-                journey_id:
-                  type: string
-                  description: Identifiant généré par l'opérateur. Doit être unique par couple conducteur/passager
+                incentive_counterparts:
+                  '$ref': '#/components/schemas/incentive_counterparts'
                 operator_journey_id:
-                  type: string
-                  description: Identifiant généré par l'opérateur pour regrouper des trajets (plusieurs passagers avec un même conducteur)
+                  '$ref': '#/components/schemas/operator_journey_id'
+                operator_trip_id:
+                  '$ref': '#/components/schemas/operator_trip_id'
                 operator_class:
-                  enum:
-                    - A
-                    - B
-                    - C
-                  description: classe de preuve correspondant aux spécifications définies dans [Classes de preuve de covoiturage](https://doc.covoiturage.beta.gouv.fr/le-registre-de-preuve-de-covoiturage/classes-de-preuve-and-identite/classes-a-b-c).
+                  '$ref': '#/components/schemas/operator_class'
+                incentives:
+                  '$ref': '#/components/schemas/incentives'
+                licence_plate:
+                  '$ref': '#/components/schemas/licence_plate'
+                start:
+                  '$ref': '#/components/schemas/time_geopoint'
+                end:
+                  '$ref': '#/components/schemas/time_geopoint'
+                distance:
+                  '$ref': '#/components/schemas/distance'
                 driver:
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - identity
-                    - incentives
-                    - start
-                    - end
-                    - revenue
-                  properties:
-                    identity:
-                      '$ref': '#/components/schemas/identity'
-                    incentives:
-                      '$ref': '#/components/schemas/incentives'
-                    payments:
-                      '$ref': '#/components/schemas/payments'
-                    start:
-                      '$ref': '#/components/schemas/geopoint'
-                    end:
-                      '$ref': '#/components/schemas/geopoint'
-                    distance:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      maximum: 1000000
-                      description: Distance exprimée en mètre
-                    duration:
-                      type: number
-                      minimum: 0
-                      maximum: 86400
-                      description: Durée exprimée en seconde
-                    revenue:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      description: |
-                        La somme réellement perçue par le conducteur **APRÈS** que toutes les incitations (subventions employeurs, promotions opérateurs, incitations AOM, etc.), contributions des passagers aient été versées et que la commission de l’opérateur soit prise.
-                        Somme exprimée en centimes.
+                  '$ref': '#/components/schemas/driver'
                 passenger:
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - identity
-                    - incentives
-                    - start
-                    - end
-                    - contribution
-                  properties:
-                    identity:
-                      '$ref': '#/components/schemas/identity'
-                    incentives:
-                      '$ref': '#/components/schemas/incentives'
-                    payments:
-                      '$ref': '#/components/schemas/payments'
-                    start:
-                      '$ref': '#/components/schemas/geopoint'
-                    end:
-                      '$ref': '#/components/schemas/geopoint'
-                    distance:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      maximum: 1000000
-                      description: Distance exprimée en mètre
-                    duration:
-                      type: number
-                      minimum: 0
-                      maximum: 86400
-                      description: Durée exprimée en seconde
-                    contribution:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      description: |
-                        Coût réel total du service pour l’occupant passager en fonction du nombre de sièges réservés **APRÈS** que toutes les possibles incitations aient été versées (subventions employeurs, promotions opérateurs, incitations AOM, etc).|
-                        Somme exprimée en centimes.
-                    seats:
-                      type: number
-                      minimum: 1
-                      maximum: 8
-                      multipleOf: 1
-                      default: 1
-                      description: Nombre de sièges réservés par l'occupant passager.
+                  '$ref': '#/components/schemas/passenger'
       responses:
         '201':
           description: OK. Le trajet a bien été enregistré.
@@ -790,12 +922,11 @@ paths:
                schema:
                  type: object
                  required:
-                   - journey_id
+                   - operator_journey_id
                    - created_at
                  properties:
-                   journey_id:
-                     type: string
-                     description: Identifiant généré par l'opérateur et envoyé en payload
+                   operator_journey_id:
+                     '$ref': '#/components/schemas/operator_journey_id'
                    created_at:
                      type: string
                      format: date-time
@@ -828,16 +959,64 @@ paths:
               example:
                 code: 403
                 error: Forbidden
-  /journeys/{journey_id}:
+    get:
+      tags:
+      - trajet
+      summary: Liste des trajets
+      description: La liste est toujours ordonnée de manière antechronologique.
+      parameters:
+        - name: status 
+          in: query
+          description: Statut du trajet
+          required: true
+          example: "invalidated"
+          schema:
+            '$ref': '#/components/schemas/status'
+        - name: limit
+          in: query
+          description: Limite
+          schema:
+            '$ref': '#/components/schemas/limit'
+        - name: start
+          in: query
+          required: false
+          description: Date de début de recherche
+          schema:
+            '$ref': '#/components/schemas/datetime'
+        - name: end
+          in: query
+          required: false
+          description: Date de fin de recherche
+          schema:
+            '$ref': '#/components/schemas/datetime'
+        - name: offset
+          in: query
+          description: Offset
+          required: false
+          schema:
+            '$ref': '#/components/schemas/offset'
+      responses:
+        '200':
+          description: Ok
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - operator_journey_id
+                  properties:
+                    operator_journey_id:
+                      '$ref': '#/components/schemas/operator_journey_id'
+  /journeys/{operator_journey_id}:
     parameters:
-      - name: journey_id
+      - name: operator_journey_id
         in: path
-        description: journey_id of the journey created
+        description: operator_journey_id of the journey created
         required: true
         schema:
-          type: string
-          format: uuid
-        example: 9415300a-7a51-4296-96d1-68636e46485d 
+          '$ref': '#/components/schemas/operator_journey_id'
     get:
       tags:
       - trajet
@@ -846,8 +1025,8 @@ paths:
       operationId: acquisition:status
       summary: Vérifier le statut d'un trajet envoyé
       description: |
-        Lors de l'envoi d'un trajet, un code 201 et un payload avec le `journey_id` et la date de création vous sont renvoyés. Le trajet est alors enregistré dans notre base. Le processus de validation par lequel vont passer les données est complexe, asynchrone et dépend de différents services ayant de temps de réponse variables. De plus, les données d'affichage de la liste détaillée de l'interface d'administration n'est rafraichi que toutes les 24h.
-        Les trajets ne seront visibles dans l'interface utilisateurs que **5 jours** après leur envoi.
+        Lors de l'envoi d'un trajet, un code 201 et un payload avec le `operator_journey_id` et la date de création vous sont renvoyés. Le trajet est alors enregistré dans notre base. Le processus de validation par lequel vont passer les données est complexe, asynchrone et dépend de différents services ayant de temps de réponse variables. De plus, les données d'affichage de la liste détaillée de l'interface d'administration n'est rafraîchie que toutes les 24h.
+        Les trajets ne seront visibles dans l'interface utilisateurs que **24 heures** après leur envoi.
         Il est possible de vérifier le statut d'un trajet envoyé directement pour s'assurer qu'il n'y pas pas eu d'erreur de format ou de traitement.
       responses:
         '200':
@@ -861,38 +1040,22 @@ paths:
                 type: object
                 required:
                   - status
-                  - journey_id
+                  - operator_journey_id
                   - created_at
                 properties:
                   status:
-                    type: string
-                    enum:
-                      - acquisition_error
-                      - normalization_error
-                      - fraud_error
-                      - ok
-                      - expired
-                      - canceled
-                      - pending
-                    description: | 
-                      Statut du trajet tel que :
-                        - acquisition_error : le trajet n'a pas du tout été enregistré
-                        - normalization_error : le trajet a été enregistré mais les données envoyées n'ont pas pu être standardisée.
-                        - fraud_error : le trajet a été enregistré et standardisé mais il a été considéré comme anormal
-                        - ok : le trajet a correctement été traité
-                        - pending : le trajet a été enregistré mais n'a pas encore été traité
-                        - canceled : le trajet a été annulé par l'opérateur
-                        - expired : le trajet a été envoyé trop tard. Cf: engagement de délais d'envoi par les opérateurs
-                  journey_id:
-                    type: string
-                    description: l'identifiant trajet envoyé par l'opérateur
+                    '$ref': '#/components/schemas/status'
+                  operator_journey_id:
+                    '$ref': '#/components/schemas/operator_journey_id'
                   created_at:
                     type: string
                     format: date-time
                     description: la date d'enregistrement du trajet ou à défaut d'enregistrement, la date de l'erreur d'enregistrement
-                  metadata: 
+                  data: 
                     type: object
-                    description: champ libre de métadonnées
+                    description: champ libre de données
+                    required:
+                      - message
                     properties:
                       message:
                         type: string
@@ -920,16 +1083,78 @@ paths:
               example:
                 code: 404
                 error: Not found
-    delete:
+    patch:
+      tags:
+      - trajet
+      security:
+        - token: []
+      summary: Mettre à jour un trajet
+      operationId: acquisition:update
+      requestBody:
+        required: true
+        content:
+          'application/json':
+            schema:
+              type: object
+              required:
+                - incentives
+                - operator_class
+                - start
+                - end
+                - distance
+              additionalProperties: false
+              properties:
+                operator_trip_id:
+                  '$ref': '#/components/schemas/operator_trip_id'
+                operator_class:
+                  '$ref': '#/components/schemas/operator_class'
+                incentive_counterparts:
+                  '$ref': '#/components/schemas/incentive_counterparts'
+                incentives:
+                  '$ref': '#/components/schemas/incentives'
+                start:
+                  '$ref': '#/components/schemas/time_geopoint'
+                end:
+                  '$ref': '#/components/schemas/time_geopoint'
+                distance:
+                  '$ref': '#/components/schemas/distance'
+      responses:
+        '200':
+          description: ok
+  /journeys/{operator_journey_id}/cancel:
+    parameters:
+      - name: operator_journey_id
+        in: path
+        description: operator_journey_id of the journey created
+        required: true
+        schema:
+          '$ref': '#/components/schemas/operator_journey_id'
+    post:
       tags:
       - trajet
       summary: Invalider un trajet envoyé
       description: |
         Annule un trajet déjà envoyé dans le registre.
-        S'il détecte un comportement inhabituel ou une fraude avérée, un opérateur doit communiquer auprès du Service l'invalidation du trajet concerné dès lors qu'il est déjà inscrit dans le registre. Cette invalidation doit avoir lieu dès que l'opérateur a connaissance de cette irrégularité.
+        S'il détecte un comportement inhabituel ou une fraude avérée, un opérateur doit communiquer auprès du service l'invalidation du trajet concerné dès lors qu'il est déjà inscrit dans le registre. Cette invalidation doit avoir lieu dès que l'opérateur a connaissance de cette irrégularité.
       security:
         - token: []
       operationId: acquisition:cancel
+      requestBody:
+        required: false
+        content:
+          'application/json':
+            schema:
+              type: object
+              required:
+                - code
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+                  pattern: /^[0-9A-Za-z_-]{0,32}$/
+                message:
+                  type: string
+                  maxLength: 512
       responses:
         '200':
           description: |
@@ -959,17 +1184,11 @@ paths:
               example:
                 code: 404
                 error: Not found
-  /policy/simulate:
+  /policies/simulate:
     post:
-      tags:
-      - incitation
-      summary: Simuler les incitations sur un trajet
-      description: |
-        Vous pouvez envoyer un trajet non réalisé afin de savoir à quelles incitations celui-ci serait éligible.
-        Les données de la requête sont les mêmes que pour envoyer une preuve, avec une restriction supplémentaire par rapport aux données géographiques.
+      summary: simuler incitations
       security:
         - token: []
-      operationId: campaign:simulateOnFuture
       requestBody:
         required: true
         content:
@@ -977,102 +1196,36 @@ paths:
             schema:
               type: object
               required:
-                - journey_id
                 - operator_class
+                - start
+                - end
+                - distance
+                - driver
+                - passenger
               additionalProperties: false
               properties:
-                journey_id:
-                  type: string
-                  description: Identifiant généré par l'opérateur. Doit être unique par couple conducteur/passager
-                operator_journey_id:
-                  type: string
-                  description: Identifiant généré par l'opérateur pour regrouper des trajets (plusieurs passagers avec un même conducteur)
                 operator_class:
-                  enum:
-                    - A
-                    - B
-                    - C
-                  description: classe de preuve correspondant aux spécifications définies dans [Classes de preuve de covoiturage](https://doc.covoiturage.beta.gouv.fr/le-registre-de-preuve-de-covoiturage/classes-de-preuve-and-identite/classes-a-b-c).
+                  '$ref': '#/components/schemas/operator_class'
+                start:
+                  '$ref': '#/components/schemas/time_geopoint'
+                end:
+                  '$ref': '#/components/schemas/time_geopoint'
+                distance:
+                  '$ref': '#/components/schemas/distance'
                 driver:
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - identity
-                    - start
-                    - end
-                    - revenue
-                  properties:
-                    identity:
-                      '$ref': '#/components/schemas/identity'
-                    start:
-                      '$ref': '#/components/schemas/geopointcoord'
-                    end:
-                      '$ref': '#/components/schemas/geopointcoord'
-                    distance:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      maximum: 1000000
-                      description: Distance exprimée en mètre
-                    revenue:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      description: |
-                        La somme réellement perçue par le conducteur **APRÈS** que toutes les incitations (subventions employeurs, promotions opérateurs, incitations AOM, etc.), contributions des passagers aient été versées et que la commission de l’opérateur soit prise.
-                        Somme exprimée en centimes.
+                  '$ref': '#/components/schemas/driver'
                 passenger:
-                  type: object
-                  additionalProperties: false
-                  required:
-                    - identity
-                    - start
-                    - end
-                    - contribution
-                  properties:
-                    identity:
-                      '$ref': '#/components/schemas/identity'
-                    start:
-                      '$ref': '#/components/schemas/geopointcoord'
-                    end:
-                      '$ref': '#/components/schemas/geopointcoord'
-                    distance:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      maximum: 1000000
-                      description: Distance exprimée en mètre
-                    contribution:
-                      type: number
-                      minimum: 0
-                      multipleOf: 1
-                      description: |
-                        Coût réel total du service pour l’occupant passager en fonction du nombre de sièges réservés **APRÈS** que toutes les possibles incitations aient été versées (subventions employeurs, promotions opérateurs, incitations AOM, etc).|
-                        Somme exprimée en centimes.
-                    seats:
-                      type: number
-                      minimum: 1
-                      maximum: 8
-                      multipleOf: 1
-                      default: 1
-                      description: Nombre de sièges réservés par l'occupant passager.
+                  '$ref': '#/components/schemas/passenger'
       responses:
         '200':
           description: |
-            L'API retourne un objet avec les incitations du passager et les incitations du conducteur sur le trajet soumis. Attention, ce calcul n'est pas définitif en raison des seuils qui peuvent s'appliquer sur une campagne. Par exemple, une campagne limitant le nombre de trajets par jour à X. C'est donc un résultat provisoire - sans valeur contractuelle - qui est retourné.
+            L'API retourne un objet avec les incitations sur le trajet soumis. Attention, ce calcul n'est pas définitif en raison des seuils qui peuvent s'appliquer sur une campagne. Par exemple, une campagne limitant le nombre de trajets par jour à X. C'est donc un résultat provisoire - sans valeur contractuelle - qui est retourné.
           content:
             'application/json':
               schema:
                 type: object
                 required:
-                  - journey_id
-                  - passenger
-                  - driver
+                  - incentives
                 properties:
-                  journey_id:
-                    type: string
-                    description: Identifiant du trajet envoyé par l'opérateur
-                  passenger:
-                    '$ref': '#/components/schemas/incentives'
-                  driver:
+                  incentives:
                     '$ref': '#/components/schemas/incentives'
